@@ -83,6 +83,7 @@ func customize<Type>(_ value: Type, block: (_ object: Type) -> Void) -> Type {
 // MARK: CircleMenu
 
 /// A Button object with pop ups buttons
+@objc
 open class CircleMenu: UIButton {
 
     // MARK: properties
@@ -114,10 +115,19 @@ open class CircleMenu: UIButton {
     @IBOutlet open weak var delegate: AnyObject? // CircleMenuDelegate?
 
     var buttons: [UIButton]?
-    weak var platform: UIView?
+    public weak var platform: UIView?
 
     public var customNormalIconView: UIImageView?
     public var customSelectedIconView: UIImageView?
+
+    private lazy var backgroundView: UIView = {
+        let view = UIView()
+        view.backgroundColor = UIColor(white: 0, alpha: 0.35)
+        view.translatesAutoresizingMaskIntoConstraints = false
+        let tap = UITapGestureRecognizer(target: self, action: #selector(tapBackgroundView))
+        view.addGestureRecognizer(tap)
+        return view
+    }()
 
     /**
      Initializes and returns a circle menu object.
@@ -131,6 +141,7 @@ open class CircleMenu: UIButton {
 
      - returns: A newly created circle menu.
      */
+    @objc
     public init(frame: CGRect,
                 normalIcon: String?,
                 selectedIcon: String?,
@@ -210,6 +221,7 @@ open class CircleMenu: UIButton {
 
     open override func removeFromSuperview() {
         if self.platform?.superview != nil { self.platform?.removeFromSuperview() }
+        backgroundView.removeFromSuperview()
         super.removeFromSuperview()
     }
 
@@ -271,6 +283,8 @@ open class CircleMenu: UIButton {
         let platform = customize(UIView(frame: .zero)) {
             $0.backgroundColor = .clear
             $0.translatesAutoresizingMaskIntoConstraints = false
+            let tap = UITapGestureRecognizer(target: self, action: #selector(tapBackgroundView))
+            $0.addGestureRecognizer(tap)
         }
         superview?.insertSubview(platform, belowSubview: self)
 
@@ -337,6 +351,15 @@ open class CircleMenu: UIButton {
             let platform = createPlatform()
             buttons = createButtons(platform: platform)
             self.platform = platform
+            if let superview = superview {
+                superview.insertSubview(backgroundView, belowSubview: platform)
+                NSLayoutConstraint.activate([
+                    backgroundView.topAnchor.constraint(equalTo: superview.topAnchor),
+                    backgroundView.leadingAnchor.constraint(equalTo: superview.leadingAnchor),
+                    backgroundView.trailingAnchor.constraint(equalTo: superview.trailingAnchor),
+                    backgroundView.bottomAnchor.constraint(equalTo: superview.bottomAnchor),
+                ])
+            }
             DispatchQueue.main.asyncAfter(deadline: .now()) {
                 self.delegate?.menuOpened?(self)
             }
@@ -344,6 +367,15 @@ open class CircleMenu: UIButton {
         let isShow = !buttonsIsShown()
         let duration = isShow ? 0.5 : 0.2
         buttonsAnimationIsShow(isShow: isShow, duration: duration)
+        if isShow {
+            UIView.animate(withDuration: duration) {
+                self.backgroundView.alpha = 1
+            }
+        } else {
+            UIView.animate(withDuration: duration) {
+                self.backgroundView.alpha = 0
+            }
+        }
 
         tapBounceAnimation(duration: 0.5) { [weak self] _ in self?.isBounceAnimating = false }
         tapRotatedAnimation(0.3, isSelected: isShow)
@@ -353,39 +385,29 @@ open class CircleMenu: UIButton {
         guard let platform = self.platform else { return }
 
         delegate?.circleMenu?(self, buttonWillSelected: sender, atIndex: sender.tag)
-        
-        let strokeWidth: CGFloat
-        if let radius = self.subButtonsRadius {
-            strokeWidth = radius * 2
-        } else {
-            strokeWidth = bounds.size.height
-        }
 
-        let circle = CircleMenuLoader(radius: CGFloat(distance),
-                                      strokeWidth: strokeWidth,
-                                      platform: platform,
-                                      color: sender.backgroundColor)
-
-        if let container = sender.container { // rotation animation
-            sender.rotationAnimation(container.angleZ + 360, duration: duration)
-            container.superview?.bringSubviewToFront(container)
-        }
-
-        let step = getArcStep()
-        circle.fillAnimation(duration, startAngle: -90 + startAngle + step * Float(sender.tag)) { [weak self] in
-            self?.buttons?.forEach { $0.alpha = 0 }
-        }
-        circle.hideAnimation(0.5, delay: duration) { [weak self] in
-            if self?.platform?.superview != nil { self?.platform?.removeFromSuperview() }
-        }
-
-        hideCenterButton(duration: 0.3)
-        showCenterButton(duration: 0.525, delay: duration)
+        dismissAllViews(sender)
 
         DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: {
             self.delegate?.circleMenu?(self, buttonDidSelected: sender, atIndex: sender.tag)
         })
-}
+    }
+
+    private func dismissAllViews(_ sender: CircleMenuButton?) {
+        guard let platform = self.platform else { return }
+
+        UIView.animate(withDuration: 0.5, animations: {
+            sender?.transform = CGAffineTransform(scaleX: 2, y: 2)
+            self.buttons?.forEach { $0.alpha = 0 }
+            self.backgroundView.alpha = 0
+        }, completion: { [weak self] _ in
+            if platform.superview != nil { platform.removeFromSuperview() }
+            self?.backgroundView.removeFromSuperview()
+        })
+
+        hideCenterButton(duration: 0.3)
+        showCenterButton(duration: 0.525, delay: duration)
+    }
 
     // MARK: animations
 
@@ -411,6 +433,7 @@ open class CircleMenu: UIButton {
             delegate?.menuCollapsed?(self)
             DispatchQueue.main.asyncAfter(deadline: DispatchTime.now() + duration) {
                 if self.platform?.superview != nil { self.platform?.removeFromSuperview() }
+                self.backgroundView.removeFromSuperview()
             }
         }
     }
@@ -527,6 +550,10 @@ open class CircleMenu: UIButton {
         customNormalIconView?.layer.add(show, forKey: nil)
 
         customSelectedIconView?.layer.add(fade, forKey: nil)
+    }
+
+    @objc private func tapBackgroundView() {
+        dismissAllViews(nil)
     }
 }
 
